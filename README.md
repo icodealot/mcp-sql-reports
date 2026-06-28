@@ -2,14 +2,29 @@
 
 A local STDIO-mode [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that exposes [Oracle Cloud Infrastructure (OCI) Database Tools SQL Reports](https://docs.oracle.com/en-us/iaas/database-tools/doc/sql-reports.html) as MCP tools. This lets AI agents (Claude, Codex, Cline, etc.) discover and read your pre-defined SQL reports, giving them well-structured, context-rich queries to work with instead of generating SQL from scratch.
 
+There is a demo of creating a Database Tools SQL report using Terraform included in this repo. You can use this to configure a
+SQL report that you can then use for testing with this MCP server to get up and running.
+
+- See the related [README](demo-resources/README.md)
+
 ## Prerequisites
 
 - An OCI account with Database Tools SQL Reports created in one or more compartments
-- Go 1.25+ to build from source, or a pre-built binary
+- Go 1.25+ to build or install from source
 - For `api_key` and `security_token` auth: a working OCI SDK configuration at `~/.oci/config` (see [SDK Configuration](https://docs.oracle.com/en-us/iaas/Content/API/Concepts/sdkconfig.htm))
 - For `instance_principal` auth: the binary must be running on an OCI Compute instance with an attached instance principal policy
 
-## Building
+## Installing
+
+**From source via GitHub:**
+
+```bash
+go install github.com/icodealot/mcp-sql-reports@latest
+```
+
+This downloads, builds, and installs the binary to `$(go env GOPATH)/bin` (defaults to `~/go/bin`). Make sure that directory is on your `PATH`.
+
+**Build locally from a cloned repo:**
 
 ```bash
 go build -o mcp-sql-reports .

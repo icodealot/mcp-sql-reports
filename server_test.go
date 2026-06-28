@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/databasetools"
 )
@@ -224,6 +226,100 @@ func TestListReportsExclusion(t *testing.T) {
 		t.Errorf("kept report %q should appear in output", id1)
 	}
 }
+
+func TestMCPInitializeVersionNegotiation(t *testing.T) {
+	// Server must respond with its own supported version, not error.
+	// The client is responsible for disconnecting if it cannot accept the server's version.
+	input := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"1999-01-01","capabilities":{},"clientInfo":{"name":"test","version":"0"}}}` + "\n"
+	var out bytes.Buffer
+	serve(strings.NewReader(input), &out, config{}, nil)
+
+	var resp jsonRPCResponse
+	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.Error != nil {
+		t.Fatalf("expected no error during version negotiation, got: %v", resp.Error)
+	}
+	result, ok := resp.Result.(map[string]any)
+	if !ok {
+		t.Fatalf("result is not a map: %T", resp.Result)
+	}
+	if result["protocolVersion"] != "2025-11-25" {
+		t.Errorf("protocolVersion = %v, want 2025-11-25", result["protocolVersion"])
+	}
+}
+
+func TestJSONRPCErrorData(t *testing.T) {
+	e := jsonRPCError{
+		Code:    -32600,
+		Message: "Unsupported protocol version",
+		Data:    map[string]any{"supported": []string{"2025-11-25"}, "requested": "1999-01-01"},
+	}
+	b, err := json.Marshal(e)
+	if err != nil {
+		t.Fatalf("marshal error: %v", err)
+	}
+	var got map[string]any
+	json.Unmarshal(b, &got)
+	if got["data"] == nil {
+		t.Error("data field missing from marshaled jsonRPCError")
+	}
+}
+
+func TestOCIErrorNotLeaked(t *testing.T) {
+	sensitiveErr := fmt.Errorf("OCI call failed: tenancy=ocid1.tenancy.oc1..secret endpoint=https://internal.example.com")
+	client := &mockClient{
+		listFunc: func(ctx context.Context, req databasetools.ListDatabaseToolsSqlReportsRequest) (databasetools.ListDatabaseToolsSqlReportsResponse, error) {
+			return databasetools.ListDatabaseToolsSqlReportsResponse{}, sensitiveErr
+		},
+		getFunc: func(ctx context.Context, req databasetools.GetDatabaseToolsSqlReportRequest) (databasetools.GetDatabaseToolsSqlReportResponse, error) {
+			return databasetools.GetDatabaseToolsSqlReportResponse{}, sensitiveErr
+		},
+	}
+	cfg := config{compartment: "ocid1.compartment.oc1..aaa"}
+
+	for _, fn := range []struct {
+		name string
+		args map[string]any
+		call func(config, sqlCollectionClient, map[string]any) (any, *jsonRPCError)
+	}{
+		{"list_reports", map[string]any{}, listReports},
+		{"get_report", map[string]any{"report_id": "ocid1.report.oc1..aaa"}, getReport},
+	} {
+		_, rpcErr := fn.call(cfg, client, fn.args)
+		if rpcErr == nil {
+			t.Fatalf("%s: expected rpc error, got nil", fn.name)
+		}
+		if strings.Contains(rpcErr.Message, "tenancy") || strings.Contains(rpcErr.Message, "internal.example.com") {
+			t.Errorf("%s: OCI error details leaked in message: %s", fn.name, rpcErr.Message)
+		}
+	}
+}
+
+func TestServeExitsOnWriteError(t *testing.T) {
+	// Use a pipe so the reader blocks after the first message; serve must exit on
+	// write error rather than blocking waiting for more input.
+	pr, pw := io.Pipe()
+	defer pr.Close()
+	go func() {
+		fmt.Fprintf(pw, `{"jsonrpc":"2.0","id":1,"method":"ping","params":{}}`+"\n")
+		// pw intentionally left open — serve must not block here.
+	}()
+	done := make(chan struct{})
+	go func() { serve(pr, &errorWriter{}, config{}, nil); close(done) }()
+	select {
+	case <-done:
+		// correct: serve exited after the write error.
+	case <-time.After(2 * time.Second):
+		t.Fatal("serve blocked after write error instead of exiting")
+	}
+}
+
+// errorWriter always returns an error so encode failures can be tested.
+type errorWriter struct{}
+
+func (errorWriter) Write([]byte) (int, error) { return 0, fmt.Errorf("broken pipe") }
 
 // extractTextContent pulls the text from an MCP tool result.
 func extractTextContent(t *testing.T, result any) string {

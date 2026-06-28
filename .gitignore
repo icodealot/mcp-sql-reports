@@ -1,4 +1,8 @@
 mcp-sql-reports
 
+# demo-resources and terraform state
+demo-resources/.terraform*
+demo-resources/terraform.tfstate*
+
 # agent testing related files
 .mcp.json

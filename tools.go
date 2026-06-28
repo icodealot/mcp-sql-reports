@@ -4,11 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/common/auth"
 	"github.com/oracle/oci-go-sdk/v65/databasetools"
 )
+
+const ociTimeout = 30 * time.Second
 
 type sqlCollectionClient interface {
 	ListDatabaseToolsSqlReports(ctx context.Context, req databasetools.ListDatabaseToolsSqlReportsRequest) (databasetools.ListDatabaseToolsSqlReportsResponse, error)
@@ -47,11 +51,14 @@ func listReports(cfg config, client sqlCollectionClient, args map[string]any) (a
 	if compartment == "" {
 		return nil, &jsonRPCError{Code: -32602, Message: "compartment_id is required"}
 	}
-	resp, err := client.ListDatabaseToolsSqlReports(context.Background(), databasetools.ListDatabaseToolsSqlReportsRequest{
+	ctx, cancel := context.WithTimeout(context.Background(), ociTimeout)
+	defer cancel()
+	resp, err := client.ListDatabaseToolsSqlReports(ctx, databasetools.ListDatabaseToolsSqlReportsRequest{
 		CompartmentId: &compartment,
 	})
 	if err != nil {
-		return nil, &jsonRPCError{Code: -32603, Message: fmt.Sprintf("OCI error: %v", err)}
+		fmt.Fprintf(os.Stderr, "list_reports OCI error: %v\n", err)
+		return nil, &jsonRPCError{Code: -32603, Message: "internal error: OCI API call failed"}
 	}
 	excluded := makeExcludeSet([]string(cfg.excludeReports))
 	var items []databasetools.DatabaseToolsSqlReportSummary
@@ -60,7 +67,11 @@ func listReports(cfg config, client sqlCollectionClient, args map[string]any) (a
 			items = append(items, item)
 		}
 	}
-	text, _ := json.MarshalIndent(items, "", "  ")
+	text, err := json.MarshalIndent(items, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "list_reports marshal error: %v\n", err)
+		return nil, &jsonRPCError{Code: -32603, Message: "internal error: failed to encode response"}
+	}
 	return mcpTextResult(string(text)), nil
 }
 
@@ -73,13 +84,20 @@ func getReport(cfg config, client sqlCollectionClient, args map[string]any) (any
 	if makeExcludeSet([]string(cfg.excludeReports))[reportID] {
 		return mcpTextResult("No report found (excluded by filter)"), nil
 	}
-	resp, err := client.GetDatabaseToolsSqlReport(context.Background(), databasetools.GetDatabaseToolsSqlReportRequest{
+	ctx, cancel := context.WithTimeout(context.Background(), ociTimeout)
+	defer cancel()
+	resp, err := client.GetDatabaseToolsSqlReport(ctx, databasetools.GetDatabaseToolsSqlReportRequest{
 		DatabaseToolsSqlReportId: &reportID,
 	})
 	if err != nil {
-		return nil, &jsonRPCError{Code: -32603, Message: fmt.Sprintf("OCI error: %v", err)}
+		fmt.Fprintf(os.Stderr, "get_report OCI error: %v\n", err)
+		return nil, &jsonRPCError{Code: -32603, Message: "internal error: OCI API call failed"}
 	}
-	text, _ := json.MarshalIndent(resp.DatabaseToolsSqlReport, "", "  ")
+	text, err := json.MarshalIndent(resp.DatabaseToolsSqlReport, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "get_report marshal error: %v\n", err)
+		return nil, &jsonRPCError{Code: -32603, Message: "internal error: failed to encode response"}
+	}
 	return mcpTextResult(string(text)), nil
 }
 
