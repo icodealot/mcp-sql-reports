@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
+	"github.com/oracle/oci-go-sdk/v65/common/auth"
 	"github.com/oracle/oci-go-sdk/v65/databasetools"
 )
 
@@ -14,8 +15,26 @@ type sqlCollectionClient interface {
 	GetDatabaseToolsSqlReport(ctx context.Context, req databasetools.GetDatabaseToolsSqlReportRequest) (databasetools.GetDatabaseToolsSqlReportResponse, error)
 }
 
-func newOCIClient(profile string) (sqlCollectionClient, error) {
-	provider := common.CustomProfileConfigProvider("", profile)
+// newOCIClient builds a DatabaseTools client using the requested auth type.
+// instance_principal uses the compute instance identity and ignores profile.
+// security_token reads a token-based session profile written by `oci session authenticate`.
+// api_key (default) uses a standard API key profile from ~/.oci/config.
+func newOCIClient(authType, profile string) (sqlCollectionClient, error) {
+	var (
+		provider common.ConfigurationProvider
+		err      error
+	)
+	switch authType {
+	case "instance_principal":
+		provider, err = auth.InstancePrincipalConfigurationProvider()
+		if err != nil {
+			return nil, fmt.Errorf("instance_principal auth: %w", err)
+		}
+	case "security_token":
+		provider = common.CustomProfileSessionTokenConfigProvider("", profile)
+	default: // api_key
+		provider = common.CustomProfileConfigProvider("", profile)
+	}
 	return databasetools.NewDatabaseToolsClientWithConfigurationProvider(provider)
 }
 

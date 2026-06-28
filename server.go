@@ -3,7 +3,9 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"io"
+	"os"
 )
 
 type jsonRPCRequest struct {
@@ -47,6 +49,9 @@ func serve(r io.Reader, w io.Writer, cfg config, client sqlCollectionClient) {
 		} else {
 			enc.Encode(jsonRPCResponse{JSONRPC: "2.0", ID: id, Result: result})
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		fmt.Fprintf(os.Stderr, "stdin read error: %v\n", err)
 	}
 }
 

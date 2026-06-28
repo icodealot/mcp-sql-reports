@@ -59,6 +59,43 @@ func TestFlagDefaultProfile(t *testing.T) {
 	}
 }
 
+func TestFlagAuthDefault(t *testing.T) {
+	cfg, err := parseFlags([]string{})
+	if err != nil {
+		t.Fatalf("parseFlags error: %v", err)
+	}
+	if cfg.authType != "api_key" {
+		t.Errorf("default authType = %q, want %q", cfg.authType, "api_key")
+	}
+}
+
+func TestFlagAuthValues(t *testing.T) {
+	for _, auth := range []string{"api_key", "instance_principal", "security_token"} {
+		cfg, err := parseFlags([]string{"-auth", auth})
+		if err != nil {
+			t.Fatalf("parseFlags(%q) error: %v", auth, err)
+		}
+		if cfg.authType != auth {
+			t.Errorf("authType = %q, want %q", cfg.authType, auth)
+		}
+	}
+}
+
+func TestFlagAuthInvalid(t *testing.T) {
+	_, err := parseFlags([]string{"-auth", "bad_value"})
+	if err == nil {
+		t.Error("expected error for invalid -auth value, got nil")
+	}
+}
+
+func TestFlagInstancePrincipalIgnoresProfile(t *testing.T) {
+	// -profile is accepted alongside -auth instance_principal but the provider ignores it.
+	_, err := parseFlags([]string{"-auth", "instance_principal", "-profile", "SOME_PROFILE"})
+	if err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+}
+
 func TestMCPInitialize(t *testing.T) {
 	input := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"0"}}}` + "\n"
 	var out bytes.Buffer
